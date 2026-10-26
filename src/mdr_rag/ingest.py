@@ -49,8 +49,22 @@ def content_hash(chunk: Chunk, embed_model: str) -> str:
     return hashlib.sha256(f"{embed_model}\n{chunk.embedding_text}".encode()).hexdigest()
 
 
+UPSERT = """
+INSERT INTO chunks (lang, path, unit, section, heading, text, position, content_hash, embedding)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
+ON CONFLICT (lang, path) DO UPDATE SET
+    unit = excluded.unit, section = excluded.section, heading = excluded.heading,
+    text = excluded.text, content_hash = excluded.content_hash, embedding = excluded.embedding
+"""
+BATCH = 16
+
+
 def load(conn: psycopg.Connection, llm: Llm, embed_model: str, chunks: list[Chunk]) -> dict:
-    """Upsert chunks of one language; returns counts of embedded, unchanged and deleted."""
+    """Upsert chunks of one language; returns counts of embedded, unchanged and deleted.
+
+    Embeddings are committed batch by batch, so an interrupted run resumes where it
+    stopped (embedding is the slow part on a CPU).
+    """
     lang = chunks[0].lang
     existing = {
         row["path"]: row["content_hash"]
@@ -58,36 +72,24 @@ def load(conn: psycopg.Connection, llm: Llm, embed_model: str, chunks: list[Chun
     }
     hashes = {c.path: content_hash(c, embed_model) for c in chunks}
     changed = [c for c in chunks if existing.get(c.path) != hashes[c.path]]
-    vectors = llm.embed([c.embedding_text for c in changed]) if changed else []
+
+    for i in range(0, len(changed), BATCH):
+        batch = changed[i : i + BATCH]
+        vectors = llm.embed([c.embedding_text for c in batch])
+        with conn.transaction():
+            for c, vector in zip(batch, vectors, strict=True):
+                conn.execute(
+                    UPSERT,
+                    (c.lang, c.path, c.unit, c.section, c.heading, c.text, c.position,
+                     hashes[c.path], db.vector_literal(vector)),
+                )  # fmt: skip
+        print(f"{lang}: embedded {i + len(batch)}/{len(changed)}", flush=True)
 
     with conn.transaction():
-        for chunk, vector in zip(changed, vectors, strict=True):
-            conn.execute(
-                """
-                INSERT INTO chunks (lang, path, unit, section, heading, text, position,
-                                    content_hash, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
-                ON CONFLICT (lang, path) DO UPDATE SET
-                    unit = excluded.unit, section = excluded.section,
-                    heading = excluded.heading, text = excluded.text,
-                    content_hash = excluded.content_hash, embedding = excluded.embedding
-                """,
-                (
-                    chunk.lang,
-                    chunk.path,
-                    chunk.unit,
-                    chunk.section,
-                    chunk.heading,
-                    chunk.text,
-                    chunk.position,
-                    hashes[chunk.path],
-                    db.vector_literal(vector),
-                ),
-            )
-        for chunk in chunks:  # positions may shift without the content changing
+        for c in chunks:  # positions may shift without the content changing
             conn.execute(
                 "UPDATE chunks SET position = %s WHERE lang = %s AND path = %s",
-                (chunk.position, lang, chunk.path),
+                (c.position, lang, c.path),
             )
         stale = [p for p in existing if p not in hashes]
         conn.execute("DELETE FROM chunks WHERE lang = %s AND path = ANY(%s)", (lang, stale))
