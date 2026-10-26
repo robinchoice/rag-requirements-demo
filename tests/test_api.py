@@ -18,7 +18,7 @@ def client(conn, database_url, monkeypatch):
     load(conn, FakeLlm(), "m", CHUNKS)
     monkeypatch.setattr(answer, "MIN_SIMILARITY", 0.2)  # fake embeddings are coarse
     llm = FakeLlm()
-    with TestClient(create_app(llm=llm, database_url=database_url)) as client:
+    with TestClient(create_app(llm=llm, chat_model=object(), database_url=database_url)) as client:
         client.llm = llm
         yield client
 

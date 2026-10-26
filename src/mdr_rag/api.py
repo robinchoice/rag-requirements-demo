@@ -4,9 +4,12 @@ from typing import Annotated
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from langchain_core.language_models import BaseChatModel
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, model_validator
 
 from mdr_rag import db
+from mdr_rag.agent import AgentAnswer, run_agent
 from mdr_rag.answer import Answer, Requirements, ask, extract_requirements, normalize_unit
 from mdr_rag.config import load_settings
 from mdr_rag.llm import Llm, OpenAiLlm
@@ -39,7 +42,11 @@ class ExtractRequest(BaseModel):
         return self
 
 
-def create_app(llm: Llm | None = None, database_url: str | None = None) -> FastAPI:
+def create_app(
+    llm: Llm | None = None,
+    chat_model: BaseChatModel | None = None,
+    database_url: str | None = None,
+) -> FastAPI:
     settings = load_settings()
 
     @asynccontextmanager
@@ -48,6 +55,12 @@ def create_app(llm: Llm | None = None, database_url: str | None = None) -> FastA
         with app.state.pool.connection() as conn:
             db.migrate(conn, settings.embed_dim)
         app.state.llm = llm or OpenAiLlm(settings)
+        app.state.chat_model = chat_model or ChatOpenAI(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=settings.chat_model,
+            temperature=0,
+        )
         yield
         app.state.pool.close()
 
@@ -96,5 +109,10 @@ def create_app(llm: Llm | None = None, database_url: str | None = None) -> FastA
             return extract_requirements(conn, llm, lang, topic=body.topic)
         except LookupError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post("/agent")
+    def agent_endpoint(conn: Conn, llm: Model, request: Request, body: AskRequest) -> AgentAnswer:
+        """Research agent: searches, lists and reads whole articles before answering."""
+        return run_agent(conn, llm, request.app.state.chat_model, body.question, body.lang)
 
     return app
