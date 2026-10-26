@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Terminal tour of the API. Needs a running stack with ingested data (see README).
+set -euo pipefail
+API=${API:-http://localhost:8000}
+
+step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+post() { curl -fsS -X POST "$API$1" -H 'content-type: application/json' -d "$2"; }
+
+step "Hybrid search: Qualitätsmanagementsystem"
+curl -fsS -G "$API/search" --data-urlencode "q=Qualitätsmanagementsystem der Hersteller" -d k=5 \
+  | jq -r '.[] | "\(.path)  rrf=\(.score|.*1000|round/1000)  ranks=\(.ranks)"'
+
+step "Ask (with citations)"
+post /ask '{"question": "Wie lange muss der Hersteller die technische Dokumentation aufbewahren?"}' \
+  | jq -r '.answer, "", (.citations[] | "  \(.path)  \(.url)")'
+
+step "Ask something the MDR does not cover"
+post /ask '{"question": "Wie backe ich ein Sauerteigbrot?"}' | jq -r '.answer'
+
+step "Extract requirements: software as a medical device"
+post /extract-requirements '{"topic": "Anforderungen an Software als Medizinprodukt"}' \
+  | jq -r '.requirements[] | "\(.id)  [\(.addressee)]  \(.statement)"'
+
+step "Agent: reads whole articles, marks its own conclusions"
+post /agent '{"question": "Which obligations does an importer have before placing a device on the market?"}' \
+  | jq -r '(.steps[] | "  \(.tool) \(.args)"), "", .answer'

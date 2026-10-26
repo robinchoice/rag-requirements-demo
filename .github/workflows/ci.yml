@@ -16,3 +16,31 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest -q
+
+  kind:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t mdr-rag:local .
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: ci
+      - run: kind load docker-image mdr-rag:local --name ci
+      - run: kubectl apply -k deploy/k8s
+      - run: |
+          kubectl -n mdr-rag rollout status statefulset/postgres --timeout=180s
+          kubectl -n mdr-rag rollout status deployment/mdr-api --timeout=180s
+      - name: Smoke test
+        run: |
+          kubectl -n mdr-rag port-forward svc/mdr-api 8000:80 &
+          sleep 3
+          curl -fsS localhost:8000/readyz | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -fsS 'localhost:8000/search?q=Hersteller&mode=fulltext' | grep -qx '\[\]'
+          curl -fsS localhost:8000/openapi.json | grep -q '/extract-requirements'
+          curl -fsS localhost:8000/metrics | grep -q '^http_requests_total'
+      - if: failure()
+        run: |
+          kubectl -n mdr-rag get pods -o wide
+          kubectl -n mdr-rag describe pods
+          kubectl -n mdr-rag logs deploy/mdr-api --tail=100

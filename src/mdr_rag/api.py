@@ -4,8 +4,11 @@ from typing import Annotated
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
+from prometheus_client import Counter
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field, model_validator
 
 from mdr_rag import db
@@ -14,6 +17,8 @@ from mdr_rag.answer import Answer, Requirements, ask, extract_requirements, norm
 from mdr_rag.config import load_settings
 from mdr_rag.llm import Llm, OpenAiLlm
 from mdr_rag.retrieval import Lang, Mode, detect_lang, search
+
+ASKED = Counter("mdr_ask_total", "Answered questions by outcome", ["found"])
 
 
 class SearchHit(BaseModel):
@@ -71,6 +76,21 @@ def create_app(
         lifespan=lifespan,
     )
 
+    Instrumentator().instrument(app).expose(app, include_in_schema=False)
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthz() -> dict:
+        return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False)
+    def readyz(request: Request):
+        try:
+            with request.app.state.pool.connection(timeout=2) as conn:
+                chunks = conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"]
+        except Exception as error:
+            return JSONResponse({"status": "unavailable", "error": str(error)}, status_code=503)
+        return {"status": "ok", "chunks": chunks}
+
     def connection(request: Request) -> Iterator[psycopg.Connection]:
         with request.app.state.pool.connection() as conn:
             yield conn
@@ -95,7 +115,9 @@ def create_app(
 
     @app.post("/ask")
     def ask_endpoint(conn: Conn, llm: Model, body: AskRequest) -> Answer:
-        return ask(conn, llm, body.question, body.lang)
+        answer = ask(conn, llm, body.question, body.lang)
+        ASKED.labels(found=str(answer.found).lower()).inc()
+        return answer
 
     @app.post("/extract-requirements")
     def extract_endpoint(conn: Conn, llm: Model, body: ExtractRequest) -> Requirements:

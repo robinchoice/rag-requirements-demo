@@ -103,3 +103,14 @@ def test_extract_requirements_validates_input(client):
     assert client.post("/extract-requirements", json={}).status_code == 422
     assert client.post("/extract-requirements", json={"article": "§ 5"}).status_code == 422
     assert client.post("/extract-requirements", json={"article": "Art. 99"}).status_code == 404
+
+
+def test_health_and_metrics(client):
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get("/readyz").json() == {"status": "ok", "chunks": 4}
+    client.post("/ask", json={"question": "Wie backe ich ein Sauerteigbrot?"})
+
+    metrics = client.get("/metrics").text
+
+    assert 'mdr_ask_total{found="false"}' in metrics
+    assert "http_request_duration_seconds" in metrics

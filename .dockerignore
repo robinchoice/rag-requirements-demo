@@ -1,0 +1,8 @@
+.venv
+.cache
+data
+.git
+.savor*
+.claude
+.env
+tests

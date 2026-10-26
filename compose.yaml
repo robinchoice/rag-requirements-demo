@@ -1,0 +1,51 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mdr
+      POSTGRES_PASSWORD: mdr
+      POSTGRES_DB: mdr
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mdr"]
+      interval: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:0.16.2
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "8192"
+      OLLAMA_KEEP_ALIVE: "30m"
+    ports: ["127.0.0.1:${OLLAMA_PORT:-11434}:11434"]
+    volumes: [ollama:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      retries: 10
+
+  # One-shot: pulls both models into the ollama volume (no-op once they are there).
+  models:
+    image: ollama/ollama:0.16.2
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull ${EMBED_MODEL:-bge-m3} && ollama pull ${CHAT_MODEL:-qwen2.5:7b-instruct}"]
+    depends_on:
+      ollama: { condition: service_healthy }
+
+  api:
+    build: .
+    image: mdr-rag:local
+    environment:
+      DATABASE_URL: postgresql://mdr:mdr@db:5432/mdr
+      LLM_BASE_URL: http://ollama:11434/v1
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      CHAT_MODEL: ${CHAT_MODEL:-qwen2.5:7b-instruct}
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+      models: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
+  ollama:

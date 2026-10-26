@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mdr-rag
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mdr-rag
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - api.yaml
+configMapGenerator:
+  - name: mdr-api
+    literals:
+      # Point this at the cluster's model server, e.g. a vLLM or Ollama Service.
+      - LLM_BASE_URL=http://llm.mdr-rag.svc:8000/v1
+      - EMBED_MODEL=bge-m3
+      - CHAT_MODEL=qwen2.5:7b-instruct
+secretGenerator:
+  # Placeholders. In a real cluster these come from a secret store
+  # (External Secrets, Sealed Secrets, Vault), never from git.
+  - name: mdr-db
+    literals:
+      - POSTGRES_PASSWORD=change-me
+      - DATABASE_URL=postgresql://mdr:change-me@postgres:5432/mdr
+images:
+  - name: mdr-rag
+    newTag: local
