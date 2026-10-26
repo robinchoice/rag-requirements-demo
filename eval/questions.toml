@@ -1,0 +1,160 @@
+# Retrieval test set: question, language and the articles/annexes that answer it.
+# A hit counts if its unit is one of `units`. Questions with `units = []` are
+# off-topic and only used to calibrate the "not found" threshold.
+
+[[question]]
+q = "Welche Pflichten haben Hersteller in Bezug auf ein Qualitätsmanagementsystem?"
+lang = "de"
+units = ["Art-10"]
+
+[[question]]
+q = "Wie lange muss der Hersteller die technische Dokumentation für die Behörden bereithalten?"
+lang = "de"
+units = ["Art-10"]
+
+[[question]]
+q = "Wer ist in der Organisation des Herstellers für die Einhaltung der Regulierungsvorschriften verantwortlich?"
+lang = "de"
+units = ["Art-15"]
+
+[[question]]
+q = "Was müssen Importeure prüfen, bevor sie ein Produkt in Verkehr bringen?"
+lang = "de"
+units = ["Art-13"]
+
+[[question]]
+q = "Welche Pflichten haben Händler, bevor sie ein Produkt auf dem Markt bereitstellen?"
+lang = "de"
+units = ["Art-14"]
+
+[[question]]
+q = "Wann muss ein Hersteller außerhalb der EU einen Bevollmächtigten benennen?"
+lang = "de"
+units = ["Art-11"]
+
+[[question]]
+q = "Nach welcher Regel wird Software klassifiziert, die Informationen für diagnostische oder therapeutische Entscheidungen liefert?"
+lang = "de"
+units = ["Annex-VIII"]
+
+[[question]]
+q = "Was muss die EU-Konformitätserklärung enthalten?"
+lang = "de"
+units = ["Art-19", "Annex-IV"]
+
+[[question]]
+q = "Wie muss die CE-Kennzeichnung angebracht werden?"
+lang = "de"
+units = ["Art-20", "Annex-V"]
+
+[[question]]
+q = "Wie oft muss der regelmäßig aktualisierte Bericht über die Sicherheit (PSUR) aktualisiert werden?"
+lang = "de"
+units = ["Art-86"]
+
+[[question]]
+q = "Innerhalb welcher Frist muss ein schwerwiegendes Vorkommnis gemeldet werden?"
+lang = "de"
+units = ["Art-87"]
+
+[[question]]
+q = "Was ist unter einer Sonderanfertigung zu verstehen?"
+lang = "de"
+units = ["Art-2"]
+
+[[question]]
+q = "Wie funktioniert das System zur eindeutigen Produktidentifikation?"
+lang = "de"
+units = ["Art-27", "Annex-VI"]
+
+[[question]]
+q = "Welche Funktionen hat die Europäische Datenbank für Medizinprodukte Eudamed?"
+lang = "de"
+units = ["Art-33"]
+
+[[question]]
+q = "Welche Informationen muss ein Implantatausweis enthalten?"
+lang = "de"
+units = ["Art-18"]
+
+[[question]]
+q = "Which requirements apply to software regarding repeatability, reliability and IT security?"
+lang = "en"
+units = ["Annex-I"]
+
+[[question]]
+q = "Which information must appear on the label of a device?"
+lang = "en"
+units = ["Annex-I"]
+
+[[question]]
+q = "What must the summary of safety and clinical performance contain?"
+lang = "en"
+units = ["Art-32"]
+
+[[question]]
+q = "What are the tasks of the Medical Device Coordination Group?"
+lang = "en"
+units = ["Art-103", "Art-105"]
+
+[[question]]
+q = "From which date does this Regulation apply?"
+lang = "en"
+units = ["Art-123"]
+
+[[question]]
+q = "What must a manufacturer's post-market surveillance plan cover?"
+lang = "en"
+units = ["Art-83", "Art-84", "Annex-III"]
+
+[[question]]
+q = "How are devices divided into classes I, IIa, IIb and III?"
+lang = "en"
+units = ["Art-51", "Annex-VIII"]
+
+[[question]]
+q = "Which requirements do notified bodies have to fulfil?"
+lang = "en"
+units = ["Art-36", "Annex-VII"]
+
+[[question]]
+q = "Under which conditions may single-use devices be reprocessed?"
+lang = "en"
+units = ["Art-17"]
+
+[[question]]
+q = "What must the technical documentation of a device contain?"
+lang = "en"
+units = ["Annex-II", "Art-10"]
+
+[[question]]
+q = "Who has to draw up a statement when putting devices together as a system or procedure pack?"
+lang = "en"
+units = ["Art-22"]
+
+[[question]]
+q = "Under which conditions may a clinical investigation be conducted on minors?"
+lang = "en"
+units = ["Art-65"]
+
+# Off-topic, for the "not found" threshold only.
+
+[[question]]
+q = "Wie backe ich ein Sauerteigbrot?"
+lang = "de"
+units = []
+
+[[question]]
+q = "Wer hat die Fußball-Weltmeisterschaft 2014 gewonnen?"
+lang = "de"
+units = []
+
+[[question]]
+q = "What is the best way to learn the guitar?"
+lang = "en"
+units = []
+
+[[question]]
+q = "How do I configure a VPN on my router?"
+lang = "en"
+units = []
