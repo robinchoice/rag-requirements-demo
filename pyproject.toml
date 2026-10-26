@@ -1,0 +1,44 @@
+[project]
+name = "mdr-rag"
+version = "0.1.0"
+description = "Hybrid RAG, requirement extraction and a small agent over the EU Medical Device Regulation"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "psycopg[binary,pool]",
+    "openai",
+    "langgraph",
+    "langchain-openai",
+    "prometheus-fastapi-instrumentator",
+]
+
+[project.optional-dependencies]
+ingest = ["docling", "torch", "torchvision"]
+
+[dependency-groups]
+dev = ["pytest", "ruff", "testcontainers[postgres]", "httpx"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
