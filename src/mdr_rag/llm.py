@@ -18,7 +18,7 @@ class OpenAiLlm:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.client = OpenAI(
-            base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=600
+            base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=600, max_retries=0
         )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
