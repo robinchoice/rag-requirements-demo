@@ -11,7 +11,9 @@ from mdr_rag.config import Settings
 class Llm(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 
-    def chat(self, messages: list[dict], schema: type[BaseModel] | None = None) -> str: ...
+    def chat(
+        self, messages: list[dict], schema: type[BaseModel] | None = None, max_tokens: int = 1024
+    ) -> str: ...
 
 
 class OpenAiLlm:
@@ -30,7 +32,11 @@ class OpenAiLlm:
             vectors.extend(d.embedding for d in response.data)
         return vectors
 
-    def chat(self, messages: list[dict], schema: type[BaseModel] | None = None) -> str:
+    def chat(
+        self, messages: list[dict], schema: type[BaseModel] | None = None, max_tokens: int = 1024
+    ) -> str:
+        # max_tokens bounds the run time; small models in JSON mode can otherwise
+        # repeat list items until the request times out.
         extra = {}
         if schema:
             # Constrained decoding: Ollama and vLLM both honour a JSON schema here.
@@ -39,6 +45,10 @@ class OpenAiLlm:
                 "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
             }
         response = self.client.chat.completions.create(
-            model=self.settings.chat_model, messages=messages, temperature=0, **extra
+            model=self.settings.chat_model,
+            messages=messages,
+            temperature=0,
+            max_tokens=max_tokens,
+            **extra,
         )
         return response.choices[0].message.content or ""

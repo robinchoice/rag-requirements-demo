@@ -18,6 +18,7 @@ CONTEXT_K = 4
 EXCERPT_CHARS = 2000
 BATCH_CHARS = 2500
 MAX_BATCHES = 5
+MAX_PER_BATCH = 12
 
 NOT_FOUND = "NOT_FOUND"
 NOT_FOUND_TEXT = {
@@ -151,14 +152,16 @@ def extraction_schema(excerpts: int) -> type[BaseModel]:
     constrained decoding cannot produce a reference to nothing."""
 
     class ExtractedRequirement(BaseModel):
-        statement: str = Field(description="One obligation, one sentence, close to the text")
+        statement: str = Field(
+            max_length=600, description="One obligation, one sentence, close to the text"
+        )
         addressee: Addressee = Field(description="Who must fulfil the obligation")
         excerpt: Literal[tuple(range(1, excerpts + 1))] = Field(  # type: ignore[valid-type]
             description="Number of the excerpt the obligation comes from"
         )
 
     class ExtractedRequirements(BaseModel):
-        requirements: list[ExtractedRequirement]
+        requirements: list[ExtractedRequirement] = Field(max_length=MAX_PER_BATCH)
 
     return ExtractedRequirements
 
@@ -197,7 +200,9 @@ def extract_requirements(
         "Regulation below. One requirement per obligation; split enumerations into "
         "separate requirements. Keep the statement in the language of the excerpt "
         "and close to its wording. Skip definitions, recitals and empowerments of the "
-        "Commission. 'excerpt' is the number in square brackets before the excerpt."
+        "Commission. 'addressee' is who has to act; requirements on the design and "
+        "manufacture of devices address the manufacturer. 'excerpt' is the number in "
+        "square brackets before the excerpt."
     )
     requirements: list[Requirement] = []
     counter: dict[str, int] = {}
@@ -209,6 +214,7 @@ def extract_requirements(
                 {"role": "user", "content": numbered_excerpts(batch)},
             ],
             schema=schema,
+            max_tokens=2048,
         )
         for item in schema.model_validate_json(reply).requirements:
             hit = batch[item.excerpt - 1]

@@ -29,7 +29,7 @@ class FakeLlm:
         self.embedded.extend(texts)
         return [fake_embedding(t) for t in texts]
 
-    def chat(self, messages, schema=None):
+    def chat(self, messages, schema=None, max_tokens=None):
         self.prompts.append(messages)
         return self.replies.pop(0)
 

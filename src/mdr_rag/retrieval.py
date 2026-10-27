@@ -63,13 +63,16 @@ def fulltext_search(
 ) -> list[Hit]:
     # A question ANDed term by term rarely matches anything, so the query is the OR
     # of its stemmed, stopword-free lexemes; ts_rank_cd rewards dense co-occurrence.
+    # Normalization 2 divides by document length: without it long annex sections,
+    # which contain most query words somewhere, outrank the short paragraph that
+    # answers (eval: full-text MRR 0.54 -> 0.78).
     rows = conn.execute(
         f"""
         WITH q AS (
             SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS query
             FROM unnest(tsvector_to_array(to_tsvector(%(cfg)s::regconfig, %(text)s))) AS lexeme
         )
-        SELECT {COLUMNS}, ts_rank_cd(tsv, q.query) AS rank
+        SELECT {COLUMNS}, ts_rank_cd(tsv, q.query, 2) AS rank
         FROM chunks, q
         WHERE lang = %(lang)s AND tsv @@ q.query
         ORDER BY rank DESC, id LIMIT %(k)s
