@@ -16,7 +16,7 @@ from mdr_rag.retrieval import Hit, Lang, detect_lang, search, unit_chunks
 MIN_SIMILARITY = 0.5
 CONTEXT_K = 4
 EXCERPT_CHARS = 2000
-BATCH_CHARS = 4000
+BATCH_CHARS = 2500
 MAX_BATCHES = 5
 
 NOT_FOUND = "NOT_FOUND"
@@ -146,14 +146,21 @@ Addressee = Literal[
 ]
 
 
-class ExtractedRequirement(BaseModel):
-    statement: str = Field(description="One obligation, one sentence, close to the legal text")
-    addressee: Addressee = Field(description="Who must fulfil the obligation")
-    excerpt: int = Field(description="Number of the excerpt the obligation comes from")
+def extraction_schema(excerpts: int) -> type[BaseModel]:
+    """Response schema; 'excerpt' is an enum of the excerpt numbers actually sent, so
+    constrained decoding cannot produce a reference to nothing."""
 
+    class ExtractedRequirement(BaseModel):
+        statement: str = Field(description="One obligation, one sentence, close to the text")
+        addressee: Addressee = Field(description="Who must fulfil the obligation")
+        excerpt: Literal[tuple(range(1, excerpts + 1))] = Field(  # type: ignore[valid-type]
+            description="Number of the excerpt the obligation comes from"
+        )
 
-class ExtractedRequirements(BaseModel):
-    requirements: list[ExtractedRequirement]
+    class ExtractedRequirements(BaseModel):
+        requirements: list[ExtractedRequirement]
+
+    return ExtractedRequirements
 
 
 class Requirement(BaseModel):
@@ -167,7 +174,6 @@ class Requirement(BaseModel):
 class Requirements(BaseModel):
     lang: Lang
     requirements: list[Requirement]
-    dropped: int = Field(description="Extracted items that cited no excerpt of the context")
     truncated: bool = Field(description=f"Only the first {MAX_BATCHES} batches were processed")
 
 
@@ -194,20 +200,17 @@ def extract_requirements(
         "Commission. 'excerpt' is the number in square brackets before the excerpt."
     )
     requirements: list[Requirement] = []
-    dropped = 0
     counter: dict[str, int] = {}
     for batch in batches[:MAX_BATCHES]:
+        schema = extraction_schema(len(batch))
         reply = llm.chat(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": numbered_excerpts(batch)},
             ],
-            schema=ExtractedRequirements,
+            schema=schema,
         )
-        for item in ExtractedRequirements.model_validate_json(reply).requirements:
-            if not 1 <= item.excerpt <= len(batch):
-                dropped += 1
-                continue
+        for item in schema.model_validate_json(reply).requirements:
             hit = batch[item.excerpt - 1]
             counter[hit.path] = counter.get(hit.path, 0) + 1
             requirements.append(
@@ -222,7 +225,6 @@ def extract_requirements(
     return Requirements(
         lang=lang,
         requirements=requirements,
-        dropped=dropped,
         truncated=len(batches) > MAX_BATCHES,
     )
 

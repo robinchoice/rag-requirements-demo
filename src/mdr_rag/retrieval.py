@@ -115,12 +115,14 @@ def search(
 
 
 GERMAN_HINTS = re.compile(
-    r"\b(der|die|das|und|ist|sind|welche|wer|wie|was|muss|müssen|für|einen?|nicht|nach)\b"
+    r"\b(der|die|das|und|ist|sind|welche|wer|wie|was|muss|müssen|für|einen?|nicht|nach"
+    r"|an|als|zu|von|mit|bei|im|auf)\b"
     r"|[äöüß]",
     re.IGNORECASE,
 )
 ENGLISH_HINTS = re.compile(
-    r"\b(the|and|is|are|which|who|how|what|must|shall|for|an?|not|does|do)\b", re.IGNORECASE
+    r"\b(the|and|is|are|which|who|how|what|must|shall|for|a|not|does|do|of|to|with)\b",
+    re.IGNORECASE,
 )
 
 

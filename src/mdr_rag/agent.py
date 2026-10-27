@@ -1,14 +1,16 @@
 """A small LangGraph agent that browses the regulation instead of receiving top-k chunks.
 
-Graph: agent -> (tool calls?) -> tools -> agent ... -> END. After MAX_STEPS tool
-rounds the model gets no tools any more and must answer with what it has read.
+Graph: agent -> (tool calls?) -> tools -> agent ... -> END. An answer before any
+read() is sent back once with the request to read the article first (small models
+like to answer from search snippets). After MAX_STEPS tool rounds the model gets no
+tools any more and must answer with what it has read.
 """
 
 from typing import Annotated, TypedDict
 
 import psycopg
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -21,6 +23,7 @@ from mdr_rag.llm import Llm
 from mdr_rag.retrieval import Lang, detect_lang, search
 
 MAX_STEPS = 4
+READ_FIRST = "Before answering, read the most relevant article in full with read(path)."
 
 
 class State(TypedDict):
@@ -89,7 +92,16 @@ def build_agent(conn: psycopg.Connection, llm: Llm, chat_model: BaseChatModel, l
         return {"messages": [with_tools.invoke(state["messages"])]}
 
     def route(state: State) -> str:
-        return "tools" if state["messages"][-1].tool_calls else END
+        if state["messages"][-1].tool_calls:
+            return "tools"
+        has_read = any(isinstance(m, ToolMessage) and m.name == "read" for m in state["messages"])
+        nudged = any(m.content == READ_FIRST for m in state["messages"])
+        if has_read or nudged or state["steps"] >= MAX_STEPS:
+            return END
+        return "read_first"
+
+    def read_first(state: State) -> dict:
+        return {"messages": [HumanMessage(READ_FIRST)]}
 
     def count_step(state: State) -> dict:
         return {"steps": state["steps"] + 1}
@@ -98,8 +110,10 @@ def build_agent(conn: psycopg.Connection, llm: Llm, chat_model: BaseChatModel, l
     graph.add_node("agent", agent)
     graph.add_node("tools", ToolNode(tools))
     graph.add_node("count", count_step)
+    graph.add_node("read_first", read_first)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route, ["tools", END])
+    graph.add_conditional_edges("agent", route, ["tools", "read_first", END])
+    graph.add_edge("read_first", "agent")
     graph.add_edge("tools", "count")
     graph.add_edge("count", "agent")
     return graph.compile(), seen

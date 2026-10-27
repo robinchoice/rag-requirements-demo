@@ -62,6 +62,24 @@ def test_agent_reads_and_cites_only_what_it_has_seen(conn):
     assert [c.path for c in result.citations] == ["MDR/Kapitel-II/Art-10"]
 
 
+def test_agent_is_sent_back_to_read_before_answering(conn):
+    load(conn, FakeLlm(), "m", CHUNKS)
+    model = ScriptedChatModel(
+        messages=iter(
+            [
+                AIMessage("Aus dem Gedächtnis: ein QM-System."),
+                call("read", path="MDR/Kapitel-II/Art-10"),
+                AIMessage("Ein QM-System [MDR/Kapitel-II/Art-10/Abs-9]."),
+            ]
+        )
+    )
+
+    result = run_agent(conn, FakeLlm(), model, "Was müssen Hersteller tun?")
+
+    assert [s.tool for s in result.steps] == ["read"]
+    assert result.answer == "Ein QM-System [MDR/Kapitel-II/Art-10/Abs-9]."
+
+
 def test_agent_stops_after_max_steps(conn, monkeypatch):
     load(conn, FakeLlm(), "m", CHUNKS)
     monkeypatch.setattr(agent, "MAX_STEPS", 2)
@@ -87,7 +105,8 @@ def test_agent_endpoint(conn, database_url):
     from mdr_rag.api import create_app
 
     load(conn, FakeLlm(), "m", CHUNKS)
-    model = ScriptedChatModel(messages=iter([AIMessage("Nichts gelesen [MDR/Kapitel-II/Art-10].")]))
+    answers = [AIMessage("Ohne Lesen."), AIMessage("Nichts gelesen [MDR/Kapitel-II/Art-10].")]
+    model = ScriptedChatModel(messages=iter(answers))
     app = create_app(llm=FakeLlm(), chat_model=model, database_url=database_url)
 
     with TestClient(app) as client:

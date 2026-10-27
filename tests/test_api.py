@@ -79,7 +79,6 @@ def test_extract_requirements_of_an_article(client):
                 "requirements": [
                     {"statement": "Hersteller unterhalten ein QM-System.",
                      "addressee": "manufacturer", "excerpt": 1},
-                    {"statement": "Erfunden.", "addressee": "other", "excerpt": 7},
                 ]
             }
         )
@@ -96,7 +95,6 @@ def test_extract_requirements_of_an_article(client):
             "url": "https://eur-lex.europa.eu/legal-content/DE/TXT/HTML/?uri=CELEX:32017R0745#art_10",
         }
     ]
-    assert body["dropped"] == 1
     assert body["truncated"] is False
 
 
@@ -115,3 +113,9 @@ def test_health_and_metrics(client):
 
     assert 'mdr_ask_total{found="false"}' in metrics
     assert "http_request_duration_seconds" in metrics
+
+
+def test_extraction_schema_only_allows_excerpts_that_were_sent():
+    schema = answer.extraction_schema(3).model_json_schema()
+
+    assert schema["$defs"]["ExtractedRequirement"]["properties"]["excerpt"]["enum"] == [1, 2, 3]
