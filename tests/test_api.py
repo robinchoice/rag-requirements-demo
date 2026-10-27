@@ -32,13 +32,14 @@ def test_search(client):
 
 def test_ask_keeps_only_citations_of_retrieved_passages(client):
     client.llm.replies = [
-        f"Hersteller brauchen ein QM-System [{ART_10}]. Das gilt immer [MDR/Erfunden/Art-999]."
+        "Hersteller brauchen ein QM-System [1]. Das gilt immer [9]."
         " Daraus folgt eine Dokumentationspflicht (gefolgert)."
     ]
 
     body = client.post(
         "/ask", json={"question": "Was müssen Hersteller beim QM-System tun?"}
     ).json()
+    prompt = client.llm.prompts[0][1]["content"]
 
     assert body["found"] is True
     assert body["lang"] == "de"
@@ -48,7 +49,7 @@ def test_ask_keeps_only_citations_of_retrieved_passages(client):
     )
     assert [c["path"] for c in body["citations"]] == [ART_10]
     assert body["citations"][0]["url"].endswith("CELEX:32017R0745#art_10")
-    assert ART_10 in client.llm.prompts[0][1]["content"]  # passage was in the context
+    assert prompt.startswith("[1] Artikel 10 – Pflichten der Hersteller\n")
 
 
 def test_ask_off_topic_does_not_call_the_model(client):
@@ -77,8 +78,8 @@ def test_extract_requirements_of_an_article(client):
             {
                 "requirements": [
                     {"statement": "Hersteller unterhalten ein QM-System.",
-                     "addressee": "manufacturer", "source": ART_10},
-                    {"statement": "Erfunden.", "addressee": "other", "source": "MDR/X"},
+                     "addressee": "manufacturer", "excerpt": 1},
+                    {"statement": "Erfunden.", "addressee": "other", "excerpt": 7},
                 ]
             }
         )

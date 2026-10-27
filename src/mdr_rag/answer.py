@@ -14,7 +14,8 @@ from mdr_rag.retrieval import Hit, Lang, detect_lang, search, unit_chunks
 # answer "not found" without asking the model. bge-m3 on the eval set: off-topic
 # questions reach at most 0.43, on-topic ones at least 0.60.
 MIN_SIMILARITY = 0.5
-CONTEXT_K = 6
+CONTEXT_K = 4
+EXCERPT_CHARS = 2000
 BATCH_CHARS = 4000
 MAX_BATCHES = 5
 
@@ -48,8 +49,10 @@ def eurlex_url(lang: str, unit: str | None) -> str:
     return f"{url}#{'art' if kind == 'Art' else 'anx'}_{number}"
 
 
-def context_block(hits: list[Hit]) -> str:
-    return "\n\n".join(f"[{h.path}] {h.heading}\n{h.text}" for h in hits)
+def numbered_excerpts(hits: list[Hit], limit: int | None = None) -> str:
+    """Excerpts as [1], [2], ...: small models cite short numbers far more reliably
+    than long paths; the numbers are mapped back to paths afterwards."""
+    return "\n\n".join(f"[{i}] {h.heading}\n{h.text[:limit]}" for i, h in enumerate(hits, start=1))
 
 
 def ask(conn: psycopg.Connection, llm: Llm, question: str, lang: Lang | None = None) -> Answer:
@@ -61,26 +64,40 @@ def ask(conn: psycopg.Connection, llm: Llm, question: str, lang: Lang | None = N
 
     system = (
         "You answer questions about the EU Medical Device Regulation (MDR, 2017/745) "
-        "using only the excerpts below. Each excerpt starts with its path in square brackets.\n"
-        f"- Answer in {LANGUAGE[lang]}, concisely.\n"
-        "- After each statement cite the excerpt it comes from with its exact path in "
-        "square brackets, e.g. [MDR/Kapitel-II/Art-10/Abs-9].\n"
-        f"- If a statement is your own conclusion and not stated in the excerpts, "
+        "using only the numbered excerpts below.\n"
+        f"- Answer in {LANGUAGE[lang]} in one to four sentences. Do not copy the excerpts.\n"
+        "- After each sentence put the number of the excerpt that supports it in square "
+        "brackets, e.g. [2].\n"
+        f"- If a sentence is your own conclusion and not stated in the excerpts, "
         f"end it with {INFERRED[lang]}.\n"
         f"- If the excerpts do not answer the question, reply only with {NOT_FOUND}."
     )
+    excerpts = numbered_excerpts(hits, EXCERPT_CHARS)
     reply = llm.chat(
         [
             {"role": "system", "content": system},
-            {"role": "user", "content": f"{context_block(hits)}\n\nQuestion: {question}"},
+            {"role": "user", "content": f"{excerpts}\n\nQuestion: {question}"},
         ]
     )
     if NOT_FOUND in reply:
         return Answer(lang=lang, found=False, answer=NOT_FOUND_TEXT[lang], citations=[])
-    headings = {h.path: h.heading for h in hits}
-    text, cited = verify_citations(reply, headings)
-    citations = [citation(lang, path, headings[path]) for path in cited]
+    text, cited = resolve_citations(reply, hits)
+    citations = [citation(lang, h.path, h.heading) for h in cited]
     return Answer(lang=lang, found=True, answer=text, citations=citations)
+
+
+def resolve_citations(text: str, hits: list[Hit]) -> tuple[str, list[Hit]]:
+    """Turn [2] into [path of excerpt 2]; numbers without an excerpt are dropped."""
+    cited: dict[int, Hit] = {}
+
+    def resolve(match: re.Match) -> str:
+        numbers = [int(n) for n in re.findall(r"\d+", match[1])]
+        valid = [n for n in numbers if 1 <= n <= len(hits)]
+        cited.update({n: hits[n - 1] for n in valid})
+        return f"[{', '.join(hits[n - 1].path for n in valid)}]" if valid else ""
+
+    text = re.sub(r"\[(\d+(?:\s*[,;]\s*\d+)*)\]", resolve, text)
+    return _tidy(text), list(cited.values())
 
 
 def verify_citations(text: str, allowed: Iterable[str]) -> tuple[str, list[str]]:
@@ -95,8 +112,12 @@ def verify_citations(text: str, allowed: Iterable[str]) -> tuple[str, list[str]]
         return f"[{', '.join(valid)}]" if valid else ""
 
     text = re.sub(r"\[([^\[\]]*MDR/[^\[\]]*)\]", check, text)
-    text = re.sub(r" +([.,;])", r"\1", re.sub(r" {2,}", " ", text))
-    return text.strip(), list(cited)
+    return _tidy(text), list(cited)
+
+
+def _tidy(text: str) -> str:
+    """Remove the gaps that dropped citations leave behind."""
+    return re.sub(r" +([.,;])", r"\1", re.sub(r" {2,}", " ", text)).strip()
 
 
 def unit_of(path: str) -> str | None:
@@ -128,22 +149,25 @@ Addressee = Literal[
 class ExtractedRequirement(BaseModel):
     statement: str = Field(description="One obligation, one sentence, close to the legal text")
     addressee: Addressee = Field(description="Who must fulfil the obligation")
-    source: str = Field(description="Path of the excerpt the obligation comes from")
+    excerpt: int = Field(description="Number of the excerpt the obligation comes from")
 
 
 class ExtractedRequirements(BaseModel):
     requirements: list[ExtractedRequirement]
 
 
-class Requirement(ExtractedRequirement):
-    id: str
+class Requirement(BaseModel):
+    id: str = Field(description="Source path plus running number, stable across runs")
+    statement: str
+    addressee: Addressee
+    source: str
     url: str
 
 
 class Requirements(BaseModel):
     lang: Lang
     requirements: list[Requirement]
-    dropped: int = Field(description="Extracted items whose source was not in the context")
+    dropped: int = Field(description="Extracted items that cited no excerpt of the context")
     truncated: bool = Field(description=f"Only the first {MAX_BATCHES} batches were processed")
 
 
@@ -155,7 +179,9 @@ def extract_requirements(
     topic: str | None = None,
 ) -> Requirements:
     """Requirements of a whole article/annex (unit) or of the best passages for a topic."""
-    hits = unit_chunks(conn, lang, unit) if unit else search(conn, llm, topic or "", lang, k=5)
+    hits = (
+        unit_chunks(conn, lang, unit) if unit else search(conn, llm, topic or "", lang, k=CONTEXT_K)
+    )
     if not hits:
         raise LookupError(f"nothing found for {unit or topic!r}")
     batches = _batches(hits)
@@ -165,7 +191,7 @@ def extract_requirements(
         "Regulation below. One requirement per obligation; split enumerations into "
         "separate requirements. Keep the statement in the language of the excerpt "
         "and close to its wording. Skip definitions, recitals and empowerments of the "
-        "Commission. 'source' is the exact path in square brackets before the excerpt."
+        "Commission. 'excerpt' is the number in square brackets before the excerpt."
     )
     requirements: list[Requirement] = []
     dropped = 0
@@ -174,21 +200,23 @@ def extract_requirements(
         reply = llm.chat(
             [
                 {"role": "system", "content": system},
-                {"role": "user", "content": context_block(batch)},
+                {"role": "user", "content": numbered_excerpts(batch)},
             ],
             schema=ExtractedRequirements,
         )
-        units = {h.path: h.unit for h in batch}
         for item in ExtractedRequirements.model_validate_json(reply).requirements:
-            if item.source not in units:
+            if not 1 <= item.excerpt <= len(batch):
                 dropped += 1
                 continue
-            counter[item.source] = counter.get(item.source, 0) + 1
+            hit = batch[item.excerpt - 1]
+            counter[hit.path] = counter.get(hit.path, 0) + 1
             requirements.append(
                 Requirement(
-                    **item.model_dump(),
-                    id=f"{item.source.removeprefix('MDR/')}#{counter[item.source]}",
-                    url=eurlex_url(lang, units[item.source]),
+                    id=f"{hit.path.removeprefix('MDR/')}#{counter[hit.path]}",
+                    statement=item.statement,
+                    addressee=item.addressee,
+                    source=hit.path,
+                    url=eurlex_url(lang, hit.unit),
                 )
             )
     return Requirements(
