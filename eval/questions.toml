@@ -1,6 +1,8 @@
 # Retrieval test set: question, language and the articles/annexes that answer it.
 # A hit counts if its unit is one of `units`. Questions with `units = []` are
 # off-topic and only used to calibrate the "not found" threshold.
+# `kind = "exact"` marks questions built around an exact term (identifier, rule or
+# article number, directive); the rest are natural-language paraphrases.
 
 [[question]]
 q = "Welche Pflichten haben Hersteller in Bezug auf ein Qualitätsmanagementsystem?"
@@ -136,6 +138,80 @@ units = ["Art-22"]
 q = "Under which conditions may a clinical investigation be conducted on minors?"
 lang = "en"
 units = ["Art-65"]
+
+# Exact terms: identifiers, rule and article numbers, directives.
+
+[[question]]
+q = "Was ist die Basis-UDI-DI?"
+lang = "de"
+kind = "exact"
+units = ["Annex-VI", "Art-27", "Art-29"]
+
+[[question]]
+q = "Was besagt Regel 11?"
+lang = "de"
+kind = "exact"
+units = ["Annex-VIII"]
+
+[[question]]
+q = "Was regelt Artikel 120?"
+lang = "de"
+kind = "exact"
+units = ["Art-120"]
+
+[[question]]
+q = "Welche Produkte fallen unter Regel 21?"
+lang = "de"
+kind = "exact"
+units = ["Annex-VIII"]
+
+[[question]]
+q = "Was gilt für Bescheinigungen nach Richtlinie 93/42/EWG?"
+lang = "de"
+kind = "exact"
+units = ["Art-120"]
+
+[[question]]
+q = "Ab welchem Massenanteil müssen CMR-Stoffe begründet werden?"
+lang = "de"
+kind = "exact"
+units = ["Annex-I"]
+
+[[question]]
+q = "What is the Basic UDI-DI?"
+lang = "en"
+kind = "exact"
+units = ["Annex-VI", "Art-27", "Art-29"]
+
+[[question]]
+q = "What does Rule 8 cover?"
+lang = "en"
+kind = "exact"
+units = ["Annex-VIII"]
+
+[[question]]
+q = "What does Article 117 amend?"
+lang = "en"
+kind = "exact"
+units = ["Art-117"]
+
+[[question]]
+q = "What is a field safety notice?"
+lang = "en"
+kind = "exact"
+units = ["Art-2", "Art-89"]
+
+[[question]]
+q = "Which products are listed in Annex XVI?"
+lang = "en"
+kind = "exact"
+units = ["Annex-XVI", "Art-1"]
+
+[[question]]
+q = "What applies to devices certified under Directive 90/385/EEC?"
+lang = "en"
+kind = "exact"
+units = ["Art-120"]
 
 # Off-topic, for the "not found" threshold only.
 

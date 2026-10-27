@@ -12,7 +12,8 @@ from mdr_rag.retrieval import Hit, Lang, detect_lang, search, unit_chunks
 
 # Below this cosine similarity of the best vector hit the question is off-topic:
 # answer "not found" without asking the model. bge-m3 on the eval set: off-topic
-# questions reach at most 0.43, on-topic ones at least 0.60.
+# questions reach at most 0.43, paraphrased questions at least 0.60; terse reference
+# questions ("What does Rule 8 cover?") fall below the threshold (README, Evaluation).
 MIN_SIMILARITY = 0.5
 CONTEXT_K = 4
 EXCERPT_CHARS = 2000

@@ -2,8 +2,9 @@
 
     uv run python -m mdr_rag.evaluate [eval/questions.toml]
 
-Prints a Markdown table plus the best vector similarity of on- and off-topic
-questions, which is what the "not found" threshold in answer.py is calibrated on.
+Prints a Markdown table with a column per question kind (paraphrase, exact, all) and the
+best vector similarity of on- and off-topic questions, which is what the "not found"
+threshold in answer.py is calibrated on.
 """
 
 import argparse
@@ -17,6 +18,7 @@ from mdr_rag.llm import OpenAiLlm
 from mdr_rag.retrieval import search, vector_search
 
 MODES = ["vector", "fulltext", "hybrid"]
+KINDS = ["paraphrase", "exact"]
 
 
 def first_relevant_rank(units: list[str], expected: list[str]) -> int | None:
@@ -39,7 +41,7 @@ def main() -> None:
 
     settings = load_settings()
     llm = OpenAiLlm(settings)
-    ranks: dict[str, list[int | None]] = {mode: [] for mode in MODES}
+    ranks = {(kind, mode): [] for kind in KINDS for mode in MODES}
     best_similarity = {"on-topic": [], "off-topic": []}
     with db.connect(settings.database_url) as conn:
         for q in questions:
@@ -52,7 +54,7 @@ def main() -> None:
             for mode in MODES:
                 hits = search(conn, llm, q["q"], q["lang"], k=10, mode=mode)
                 rank = first_relevant_rank([h.unit for h in hits], q["units"])
-                ranks[mode].append(rank)
+                ranks[(q.get("kind", "paraphrase"), mode)].append(rank)
                 if mode == "hybrid" and not (rank and rank <= 5):
                     print(f"miss ({mode}): {q['q']} -> {[h.unit for h in hits[:5]]}")
 
@@ -61,10 +63,20 @@ def main() -> None:
         f"{sum(q['lang'] == 'en' for q in on_topic)} en), embeddings: {settings.embed_model}, "
         f"{datetime.date.today().isoformat()}\n"
     )
-    print("| Retriever | recall@5 | MRR@10 |\n|---|---|---|")
+    counts = [sum(q.get("kind", "paraphrase") == kind for q in on_topic) for kind in KINDS]
+    columns = [f"{kind} ({n})" for kind, n in zip(KINDS, counts, strict=True)]
+    columns.append(f"all ({len(on_topic)})")
+    print("recall@5 / MRR@10\n")
+    print(f"| Retriever | {' | '.join(columns)} |\n|---{'|---' * len(columns)}|")
     for mode in MODES:
-        s = score(ranks[mode])
-        print(f"| {mode} | {s['recall@5']:.2f} | {s['mrr@10']:.2f} |")
+        groups = [ranks[(kind, mode)] for kind in KINDS]
+        groups.append([r for g in groups for r in g])
+        cells = [score(g) for g in groups]
+        print(
+            f"| {mode} | "
+            + " | ".join(f"{s['recall@5']:.2f} / {s['mrr@10']:.2f}" for s in cells)
+            + " |"
+        )
     for topic, values in best_similarity.items():
         print(f"\nbest vector similarity, {topic}: min {min(values):.2f}, max {max(values):.2f}")
 
