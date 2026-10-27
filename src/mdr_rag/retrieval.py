@@ -99,6 +99,60 @@ def reciprocal_rank_fusion(rankings: list[list[Hit]], k: int = RRF_K) -> list[Hi
     return sorted(fused.values(), key=lambda h: h.score, reverse=True)
 
 
+ARTICLE_REF = re.compile(r"\b(?i:art\.?|artikels?|article)\s*(\d+)")
+ANNEX_REF = re.compile(r"\b(?i:anhang|annex)\s+([IVXL]+)\b")
+RULE_REF = re.compile(r"\b(?i:regel|rule)\s+(\d+)\b")
+
+
+def references(query: str) -> tuple[list[str], list[str]]:
+    """Units and classification rules a question names: 'Artikel 120', 'Annex XVI', 'Rule 8'."""
+    units = [f"Art-{n}" for n in ARTICLE_REF.findall(query)]
+    units += [f"Annex-{n}" for n in ANNEX_REF.findall(query)]
+    return units, RULE_REF.findall(query)
+
+
+def referenced_chunks(
+    conn: psycopg.Connection, query: str, lang: Lang, embedding: list[float] | None = None
+) -> list[Hit]:
+    """Chunks of the articles, annexes and rules (Annex VIII) a question names, most
+    similar first. Terse questions like "What does Rule 8 cover?" carry too little
+    meaning for the embedding and Postgres full text has no IDF, so a named reference
+    is looked up instead of searched for."""
+    units, rules = references(query)
+    if not units and not rules:
+        return []
+    # a rule starts with its section number: "6.3. Regel 11", not "gemäß Regel 11"
+    rule_heading = rf"\d+\.\d+\.\s+(Regel|Rule)\s+({'|'.join(rules)})\M" if rules else None
+    similarity = "1 - (embedding <=> %(q)s::vector)" if embedding else "NULL::float"
+    rows = conn.execute(
+        f"""
+        SELECT {COLUMNS}, {similarity} AS similarity
+        FROM chunks
+        WHERE lang = %(lang)s
+          AND (unit = ANY(%(units)s) OR (unit = 'Annex-VIII' AND text ~ %(rule)s))
+        ORDER BY similarity DESC NULLS LAST, unit, position
+        """,
+        {
+            "q": vector_literal(embedding) if embedding else None,
+            "lang": lang,
+            "units": units,
+            "rule": rule_heading,
+        },
+    ).fetchall()
+    hits = [
+        _hit(r, ranks={"reference": i}, similarity=r["similarity"])
+        for i, r in enumerate(rows, start=1)
+    ]
+    if rules:
+        # a rule can sit deep in a long section: start the passage at the rule, or
+        # excerpt limits downstream cut it off
+        heading = re.compile(rf"\d+\.\d+\.\s+(?:Regel|Rule)\s+(?:{'|'.join(rules)})\b")
+        for hit in hits:
+            if hit.unit not in units and (m := heading.search(hit.text)):
+                hit.text = hit.text[m.start() :]
+    return hits
+
+
 def search(
     conn: psycopg.Connection,
     llm: Llm,
@@ -106,15 +160,22 @@ def search(
     lang: Lang,
     k: int = 10,
     mode: Mode = "hybrid",
+    resolve_references: bool = True,
 ) -> list[Hit]:
+    """Ranked chunks; with resolve_references the chunks of named articles, annexes
+    and rules take up to half of the k places, ahead of the search results."""
+    embedding = llm.embed([query])[0] if mode in ("hybrid", "vector") else None
     rankings = []
-    if mode in ("hybrid", "vector"):
-        rankings.append(vector_search(conn, llm.embed([query])[0], lang))
+    if embedding:
+        rankings.append(vector_search(conn, embedding, lang))
     if mode in ("hybrid", "fulltext"):
         rankings.append(fulltext_search(conn, query, lang))
-    if mode != "hybrid":
-        return rankings[0][:k]
-    return reciprocal_rank_fusion(rankings)[:k]
+    hits = reciprocal_rank_fusion(rankings) if mode == "hybrid" else rankings[0]
+    if not resolve_references:
+        return hits[:k]
+    pinned = referenced_chunks(conn, query, lang, embedding)[: -(-k // 2)]
+    ids = {h.id for h in pinned}
+    return (pinned + [h for h in hits if h.id not in ids])[:k]
 
 
 GERMAN_HINTS = re.compile(

@@ -12,8 +12,9 @@ from mdr_rag.retrieval import Hit, Lang, detect_lang, search, unit_chunks
 
 # Below this cosine similarity of the best vector hit the question is off-topic:
 # answer "not found" without asking the model. bge-m3 on the eval set: off-topic
-# questions reach at most 0.43, paraphrased questions at least 0.60; terse reference
-# questions ("What does Rule 8 cover?") fall below the threshold (README, Evaluation).
+# questions reach at most 0.43, paraphrased questions at least 0.60. Terse reference
+# questions ("What does Rule 8 cover?") fall below it, so a question that names an
+# article, annex or rule found in the corpus skips the check.
 MIN_SIMILARITY = 0.5
 CONTEXT_K = 4
 EXCERPT_CHARS = 2000
@@ -61,7 +62,8 @@ def ask(conn: psycopg.Connection, llm: Llm, question: str, lang: Lang | None = N
     lang = lang or detect_lang(question)
     hits = search(conn, llm, question, lang, k=CONTEXT_K)
     best = max((h.similarity or 0.0 for h in hits), default=0.0)
-    if best < MIN_SIMILARITY:
+    referenced = any("reference" in h.ranks for h in hits)
+    if best < MIN_SIMILARITY and not referenced:
         return Answer(lang=lang, found=False, answer=NOT_FOUND_TEXT[lang], citations=[])
 
     system = (

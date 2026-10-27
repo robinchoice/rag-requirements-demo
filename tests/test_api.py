@@ -64,6 +64,16 @@ def test_ask_off_topic_does_not_call_the_model(client):
     assert client.llm.prompts == []
 
 
+def test_ask_named_article_skips_the_similarity_threshold(client, monkeypatch):
+    monkeypatch.setattr(answer, "MIN_SIMILARITY", 0.99)
+    client.llm.replies = ["Importeure prüfen die Konformität [1]."]
+
+    body = client.post("/ask", json={"question": "Was regelt Artikel 13?"}).json()
+
+    assert body["found"] is True
+    assert [c["path"] for c in body["citations"]] == [ART_13]
+
+
 def test_ask_model_says_not_found(client):
     client.llm.replies = ["NOT_FOUND"]
 

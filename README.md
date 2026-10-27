@@ -141,7 +141,8 @@ recall@5 / MRR@10:
 | full text, `ts_rank_cd` | 0.70 / 0.54 | 0.75 / 0.71 | 0.72 / 0.59 |
 | full text, `ts_rank_cd` normalised by length (default) | 0.85 / 0.78 | 0.83 / 0.56 | 0.85 / 0.71 |
 | hybrid (RRF, k=60) with raw full text | 1.00 / 0.92 | 0.92 / 0.80 | 0.97 / 0.88 |
-| hybrid (RRF, k=60) with normalised full text (default) | 0.96 / 0.90 | 0.92 / 0.78 | 0.95 / 0.86 |
+| hybrid (RRF, k=60) with normalised full text | 0.96 / 0.90 | 0.92 / 0.78 | 0.95 / 0.86 |
+| hybrid plus named references resolved first (default) | 0.96 / 0.90 | 1.00 / 1.00 | 0.97 / 0.93 |
 
 What the numbers say:
 
@@ -154,9 +155,13 @@ What the numbers say:
   "What does Article 117 amend?" the word "article", which occurs in hundreds of chunks,
   counts as much as "117". Article 117 does not reach the top 10, and fusion pushes it out of
   the hybrid top 5 as well, although vector search has it at rank 1. A BM25 ranking (for
-  example the ParadeDB `pg_search` extension) would be the next thing to measure; for the
-  common case of a question naming an article, resolving the reference directly (as
-  `/extract-requirements` already does with `normalize_unit`) beats any ranking.
+  example the ParadeDB `pg_search` extension) would be the next thing to measure.
+- **Named references are looked up, not searched for.** A question that names an article, an
+  annex or a classification rule ("Artikel 120", "Annex XVI", "Rule 8") gets the chunks of
+  that unit first, most similar first, on up to half of the places; the search results fill
+  the rest. That lifts the exact-term column to 1.00 / 1.00. Read that number with care: six
+  of the twelve questions name the unit they expect, so for them it shows that the lookup
+  works, not that retrieval got better. The paraphrases name no reference and are unchanged.
 - **Length normalisation is a trade-off.** Raw `ts_rank_cd` favours long chunks: annex
   sections and the definitions article contain most query words somewhere and outrank the
   short paragraph that answers. Dividing by length fixes that for paraphrases (MRR
@@ -169,10 +174,11 @@ What the numbers say:
   against a larger, independent question set (tuning on this one would overfit).
 - **Off-topic detection has almost no margin.** The best vector similarity is 0.31–0.43 for
   off-topic questions and 0.44–0.81 for on-topic ones. `/ask` answers "not found" below 0.5
-  without calling the model, which catches all off-topic questions but also three short
+  without calling the model. That caught all off-topic questions but also three short
   reference questions ("Was besagt Regel 11?" 0.44, "Was regelt Artikel 120?" 0.49, "What
-  does Rule 8 cover?" 0.50). Short questions carry little meaning for the embedding; a
-  question that names a rule or article should not depend on that threshold at all.
+  does Rule 8 cover?" 0.50): short questions carry little meaning for the embedding. A
+  question whose named reference exists in the corpus now skips the threshold; with that no
+  on-topic question of the set is rejected.
 - Answer quality is not scored automatically; the citation check (only passages that were in
   the context can be cited) is the guard rail.
 
@@ -187,7 +193,8 @@ What the numbers say:
   score scales never need calibrating. The pipeline is a cascade: cheap stages with high recall
   first, the expensive and precise step (the LLM reading whole passages) last on a handful of
   survivors. A cross-encoder reranker would be the next stage; Ollama has no rerank API, so it
-  is left out rather than bolted on.
+  is left out rather than bolted on. In front of the cascade, articles, annexes and rules
+  named in the question are resolved with a regular expression and looked up directly.
 - **The full-text query ORs the question's lexemes.** `websearch_to_tsquery` ANDs every word of
   a natural question and rarely matches; OR plus `ts_rank_cd` keeps recall high and rewards
   passages where the terms co-occur.
@@ -240,10 +247,11 @@ from a secret store. Ingest runs as a one-off job against the same database.
   intended runtime; extraction of a whole long article can hit the 10-minute client timeout
   on a CPU. Ollama runs with an 8k
   context, which bounds how much the agent can read.
-- `/ask` answers "not found" to terse reference questions such as "What does Rule 8 cover?":
-  their embedding similarity falls below the off-topic threshold. A full sentence that names
-  the subject works ("Which implantable devices are classified under rule 8 of Annex VIII?"
-  0.67); resolving named articles and rules directly would fix it.
+- Terse questions without a named reference can still fall below the off-topic threshold of
+  `/ask`: "Was ist ein PRRC?" reaches 0.35, the abbreviation does not occur in the
+  regulation. A full sentence that names the subject is safer. Reference
+  resolution only knows articles, annexes and the rules of Annex VIII, not paragraphs
+  ("Artikel 10 Absatz 9") or sections.
 - The evaluation measures retrieval only, on a small hand-written set; answer quality is not
   scored automatically.
 - No auth, no multi-tenancy, no UI: the FastAPI docs and `scripts/demo` are the interface.

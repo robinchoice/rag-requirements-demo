@@ -2,7 +2,7 @@ from conftest import FakeLlm
 
 from mdr_rag.chunking import Chunk
 from mdr_rag.ingest import load
-from mdr_rag.retrieval import Hit, detect_lang, reciprocal_rank_fusion, search
+from mdr_rag.retrieval import Hit, detect_lang, reciprocal_rank_fusion, references, search
 
 CHUNKS = [
     Chunk(
@@ -61,3 +61,42 @@ def test_fulltext_without_matching_terms_returns_nothing(conn):
 def test_detect_lang():
     assert detect_lang("Welche Pflichten haben Hersteller?") == "de"
     assert detect_lang("What must manufacturers do?") == "en"
+
+
+def test_references_named_in_a_question():
+    assert references("Was regelt Artikel 120?") == (["Art-120"], [])
+    assert references("Pflichten nach Art. 10 und Anhang IX") == (["Art-10", "Annex-IX"], [])
+    assert references("Which products are listed in Annex XVI?") == (["Annex-XVI"], [])
+    assert references("What does Rule 8 cover?") == ([], ["8"])
+    assert references("Welche Pflichten haben Hersteller?") == ([], [])
+
+
+RULES = [
+    Chunk(
+        "de", "MDR/Anhang-VIII/Kapitel-III/Abschnitt-6", "Annex-VIII", "6", "Anhang VIII – Regeln",
+        "6. AKTIVE PRODUKTE 6.3. Regel 11 Software für Diagnosen gehört zur Klasse IIa.",
+        3,
+    ),
+    Chunk(
+        "de", "MDR/Anhang-VIII/Kapitel-III/Abschnitt-7", "Annex-VIII", "7", "Anhang VIII – Regeln",
+        "7. BESONDERE REGELN 7.1. Regel 14 Produkte mit Arzneimitteln, anders als gemäß Regel 11.",
+        4,
+    ),
+]  # fmt: skip
+
+
+def test_named_references_come_first(conn):
+    load(conn, FakeLlm(), "m", CHUNKS[:3] + RULES)
+    llm = FakeLlm()
+
+    rule = search(conn, llm, "Was besagt Regel 11?", "de", k=4)
+    article = search(conn, llm, "Was regelt Artikel 13?", "de", k=4)
+    unresolved = search(conn, llm, "Was regelt Artikel 13?", "de", k=4, resolve_references=False)
+
+    # the rule's own section, not the one that only mentions it
+    assert [h.path for h in rule if "reference" in h.ranks] == [RULES[0].path]
+    assert rule[0].text.startswith("6.3. Regel 11 Software")
+    assert article[0].path == "MDR/Kapitel-II/Art-13/Abs-1"
+    assert article[0].ranks == {"reference": 1}
+    assert not any("reference" in h.ranks for h in unresolved)
+    assert len({h.id for h in article}) == len(article)

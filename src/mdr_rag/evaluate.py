@@ -13,11 +13,18 @@ import tomllib
 from pathlib import Path
 
 from mdr_rag import db
+from mdr_rag.answer import MIN_SIMILARITY
 from mdr_rag.config import load_settings
 from mdr_rag.llm import OpenAiLlm
-from mdr_rag.retrieval import search, vector_search
+from mdr_rag.retrieval import referenced_chunks, search, vector_search
 
-MODES = ["vector", "fulltext", "hybrid"]
+# label -> (search mode, resolve named references)
+MODES = {
+    "vector": ("vector", False),
+    "fulltext": ("fulltext", False),
+    "hybrid": ("hybrid", False),
+    "hybrid + references": ("hybrid", True),
+}
 KINDS = ["paraphrase", "exact"]
 
 
@@ -43,6 +50,7 @@ def main() -> None:
     llm = OpenAiLlm(settings)
     ranks = {(kind, mode): [] for kind in KINDS for mode in MODES}
     best_similarity = {"on-topic": [], "off-topic": []}
+    rejected: list[str] = []
     with db.connect(settings.database_url) as conn:
         for q in questions:
             embedding = llm.embed([q["q"]])[0]
@@ -51,11 +59,17 @@ def main() -> None:
             best_similarity[topic].append(top[0].similarity if top else 0.0)
             if not q["units"]:
                 continue
-            for mode in MODES:
-                hits = search(conn, llm, q["q"], q["lang"], k=10, mode=mode)
+            if top[0].similarity < MIN_SIMILARITY and not referenced_chunks(
+                conn, q["q"], q["lang"]
+            ):
+                rejected.append(q["q"])
+            for mode, (search_mode, resolve) in MODES.items():
+                hits = search(
+                    conn, llm, q["q"], q["lang"], k=10, mode=search_mode, resolve_references=resolve
+                )
                 rank = first_relevant_rank([h.unit for h in hits], q["units"])
                 ranks[(q.get("kind", "paraphrase"), mode)].append(rank)
-                if mode == "hybrid" and not (rank and rank <= 5):
+                if resolve and not (rank and rank <= 5):
                     print(f"miss ({mode}): {q['q']} -> {[h.unit for h in hits[:5]]}")
 
     print(
@@ -79,6 +93,7 @@ def main() -> None:
         )
     for topic, values in best_similarity.items():
         print(f"\nbest vector similarity, {topic}: min {min(values):.2f}, max {max(values):.2f}")
+    print(f"\non-topic questions /ask would answer with 'not found': {rejected or 'none'}")
 
 
 if __name__ == "__main__":
